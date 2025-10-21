@@ -12,9 +12,9 @@ from language_definition import ToyLanguage
 from space_generator import FillerSpaceGenerator
 from fiber_bundle import FiberBundle
 from dynamics import generate_sentence_trajectory
-from visualizer import plot_combined # This is the main function to call for plotting
+from visualizer import plot_combined, plot_filler_space_tsne
 import numpy as np
-from sklearn.decomposition import PCA # <-- ADDED IMPORT
+from sklearn.decomposition import PCA
 
 def main():
     # --- Step 1: Initializing Toy Language ---
@@ -27,6 +27,10 @@ def main():
     space_gen = FillerSpaceGenerator(model_name='word2vec-google-news-300')
     filler_space = space_gen.generate_filler_space(language.terminals, FILLER_SPACE_DIM)
 
+    # --- Step 2a: Visualize the Filler Space ---
+    print("\n--- Step 2a: Visualizing the Filler Space ---")
+    plot_filler_space_tsne(filler_space)
+
     # --- Step 3: Setting Up the Fiber Bundle ---
     print("\n--- Step 3: Setting Up the Fiber Bundle ---")
     bundle = FiberBundle(language, filler_space)
@@ -36,7 +40,6 @@ def main():
     target_gist = ('cat', 'saw', 'dog')
     print(f"\n--- Step 4: Generating sentence for gist: {target_gist} ---")
     
-    # The dynamical system returns all necessary data for plotting
     final_sentence, trajectory, words_added, settling_indices = generate_sentence_trajectory(target_gist, bundle)
 
     print(f"\nFinal Sentence: '{final_sentence}'")
