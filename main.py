@@ -13,10 +13,105 @@ from space_generator import FillerSpaceGenerator
 from fiber_bundle import FiberBundle
 from dynamics import generate_sentence_trajectory
 from visualizer import plot_combined, plot_filler_space_tsne
+from tda import plot_gist_persistence, plot_betti_curves, plot_distance_histogram
 import numpy as np
 from sklearn.decomposition import PCA
+import itertools
+import random
+
+def generate_full_gist_manifold(language: ToyLanguage, bundle: FiberBundle) -> np.ndarray:
+    """
+    Generates all 75 (or fewer) valid gist vectors.
+    """
+    print("\n--- Generating Full Gist Manifold ---")
+    
+    # Get all valid nouns and verbs from the filler space
+    valid_nouns = [n for n in language.terminal_map['N'] if n in bundle.filler_space]
+    valid_verbs = [v for v in language.terminal_map['V'] if v in bundle.filler_space]
+    
+    if not valid_nouns or not valid_verbs:
+        print("Warning: Not enough valid nouns or verbs in filler space to generate manifold.")
+        return np.array([])
+        
+    all_gists = []
+    
+    # Use itertools.product to get all combinations
+    for agent, action, patient in itertools.product(valid_nouns, valid_verbs, valid_nouns):
+        # We must create a "valid" sentence string that represent_sentence_in_total_space
+        # can parse. The simplest is just "agent action patient".
+        # This works because the parser finds the verb and splits [cite: fiber_bundle.py]
+        sentence = f"{agent} {action} {patient}"
+        
+        try:
+            total_vec = bundle.represent_sentence_in_total_space(sentence)
+            base_vec = bundle.project_to_base_space(total_vec)
+            all_gists.append(base_vec)
+        except ValueError as e:
+            print(f"Skipping gist '{sentence}': {e}")
+            
+    print(f"Generated {len(all_gists)} unique gist vectors.")
+    return np.array(all_gists)
+
+def generate_full_total_space_manifold(language: ToyLanguage, bundle: FiberBundle) -> np.ndarray:
+    """
+    Generates all 7,500 (or fewer) valid sentence vectors in the Total Space.
+    """
+    print("\n--- Generating Full Total Space Manifold (this may take a moment) ---")
+    
+    # Get all valid words from the filler space for each category
+    valid_dets = [w for w in language.terminal_map['Det'] if w in bundle.filler_space]
+    valid_adjs = [w for w in language.terminal_map['Adj'] if w in bundle.filler_space]
+    valid_nouns = [w for w in language.terminal_map['N'] if w in bundle.filler_space]
+    valid_verbs = [v for v in language.terminal_map['V'] if v in bundle.filler_space]
+
+    if not all([valid_dets, valid_adjs, valid_nouns, valid_verbs]):
+        print("Warning: Missing words in a category. The total space will be smaller than expected.")
+
+    # 1. Generate all possible Noun Phrases (as lists of words)
+    all_nps = []
+    # NPs without adjectives ('Det N')
+    for det, noun in itertools.product(valid_dets, valid_nouns):
+        all_nps.append([det, noun])
+    # NPs with adjectives ('Det Adj N')
+    for det, adj, noun in itertools.product(valid_dets, valid_adjs, valid_nouns):
+        all_nps.append([det, adj, noun])
+        
+    print(f"Generated {len(all_nps)} unique Noun Phrases.")
+
+    # 2. Generate all sentences and their vectors
+    all_sentence_vectors = []
+    sentence_count = 0
+    total_possible_sentences = len(all_nps) * len(valid_verbs) * len(all_nps)
+    
+    for np1_words, verb, np2_words in itertools.product(all_nps, valid_verbs, all_nps):
+        sentence_words = np1_words + [verb] + np2_words
+        sentence_str = " ".join(sentence_words)
+        
+        try:
+            total_vec = bundle.represent_sentence_in_total_space(sentence_str)
+            all_sentence_vectors.append(total_vec)
+            sentence_count += 1
+            if sentence_count % 1000 == 0:
+                print(f"  ...processed {sentence_count}/{total_possible_sentences} sentences.")
+        except ValueError as e:
+            # This shouldn't happen with this deterministic generation, but good practice
+            print(f"Skipping sentence '{sentence_str}': {e}")
+            
+    print(f"Generated {len(all_sentence_vectors)} unique total space vectors.")
+    return np.array(all_sentence_vectors)
+
 
 def main():
+    # --- Control flags for TDA ---
+    RUN_TDA_ON_BASE_SPACE = True
+    RUN_TDA_ON_TOTAL_SPACE = False  # Set to False to skip the long computation
+    
+    # --- Seed for reproducibility ---
+    RANDOM_SEED = 42
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+
+
     # --- Step 1: Initializing Toy Language ---
     print("--- Step 1: Initializing Toy Language ---")
     language = ToyLanguage()
@@ -67,6 +162,53 @@ def main():
         print("Corpus size too small for 3D visualization.")
         corpus_gists_3d = np.array([[0,0,0]])
         example_gist_3d = np.array([0,0,0])
+        
+    # --- Step 5a: Topological Data Analysis (Base Space) ---
+    if RUN_TDA_ON_BASE_SPACE:
+        print("\n--- Step 5a: Performing Topological Data Analysis (Base Space) ---")
+        HOMOLOGY_MAX_DIM = 2 # Define max dim to use for all TDA plots
+
+        # 1. Analyze the *random sample*
+        plot_gist_persistence(corpus_gists_matrix, 
+                              title=f"Persistence of Random Gist Corpus (N={corpus_gists_matrix.shape[0]})",
+                              max_dim=HOMOLOGY_MAX_DIM)
+        
+        # 2. Analyze the *full 75-point manifold*
+        full_gist_manifold_matrix = generate_full_gist_manifold(language, bundle)
+        plot_gist_persistence(full_gist_manifold_matrix,
+                              title=f"Persistence of Full Gist Manifold (N={full_gist_manifold_matrix.shape[0]})",
+                              max_dim=HOMOLOGY_MAX_DIM)
+
+        # 3. Plot Betti Curves for the full manifold
+        if full_gist_manifold_matrix.size > 0:
+            plot_betti_curves(full_gist_manifold_matrix,
+                              title=f"Betti Curves for Full Gist Manifold (N={full_gist_manifold_matrix.shape[0]})",
+                              max_dim=HOMOLOGY_MAX_DIM)
+
+        # 4. Plot histogram of pairwise distances
+        if full_gist_manifold_matrix.size > 0:
+            plot_distance_histogram(full_gist_manifold_matrix,
+                                      title=f"Pairwise Distances in Full Gist Manifold (N={full_gist_manifold_matrix.shape[0]})")
+
+    # --- Step 5b: Topological Data Analysis (Total Space) ---
+    if RUN_TDA_ON_TOTAL_SPACE:
+        print("\n--- Step 5b: Performing Topological Data Analysis (Total Space) ---")
+        HOMOLOGY_MAX_DIM = 2 # Define max dim to use for all TDA plots
+        full_total_space_matrix = generate_full_total_space_manifold(language, bundle)
+
+        # Note: TDA on this many points will be very slow and memory-intensive.
+        if full_total_space_matrix.size > 0:
+            plot_gist_persistence(full_total_space_matrix,
+                                  title=f"Persistence of Full Total Space Manifold (N={full_total_space_matrix.shape[0]})",
+                                  max_dim=HOMOLOGY_MAX_DIM)
+
+            plot_betti_curves(full_total_space_matrix,
+                              title=f"Betti Curves for Full Total Space Manifold (N={full_total_space_matrix.shape[0]})",
+                              max_dim=HOMOLOGY_MAX_DIM)
+
+            plot_distance_histogram(full_total_space_matrix,
+                                      title=f"Pairwise Distances in Full Total Space Manifold (N={full_total_space_matrix.shape[0]})")
+
 
     # --- Step 6: Visualizing the plots ---
     print("\n--- Step 6: Visualizing the plots ---")
@@ -75,6 +217,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
     
