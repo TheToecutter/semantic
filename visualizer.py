@@ -100,4 +100,111 @@ def plot_combined(corpus_gists_3d, example_gist_3d, trajectory, words_added, set
     print("Displaying combined plot...")
     plt.show()
 
+def plot_fiber_grid_2d(fiber_matrix, title=""):
+    """
+    Performs PCA on the high-dimensional fiber vectors and plots the resulting
+    2D grid structure.
+    """
+    if fiber_matrix.shape[0] < 4 or fiber_matrix.ndim != 2:
+        print("Not enough points in the fiber to plot a grid. Skipping.")
+        return
+
+    print("Generating 2D PCA visualization of the fiber grid...")
+    
+    pca = PCA(n_components=2)
+    points_2d = pca.fit_transform(fiber_matrix)
+    
+    # Determine the grid dimensions. Assumes a square grid.
+    grid_dim = int(np.sqrt(points_2d.shape[0]))
+    if grid_dim * grid_dim != points_2d.shape[0]:
+        print("Warning: Fiber does not form a perfect square grid. Plot may be incorrect.")
+        return
+
+    # Reshape the points into a grid to easily draw lines between neighbors
+    grid_2d = points_2d.reshape((grid_dim, grid_dim, 2))
+    
+    fig = plt.figure(figsize=(12, 12))
+    ax = fig.add_subplot(111)
+    
+    # Plot the grid points
+    ax.scatter(points_2d[:, 0], points_2d[:, 1], s=50, c='blue')
+
+    # Plot the grid lines by connecting adjacent points
+    for i in range(grid_dim):
+        for j in range(grid_dim):
+            # Connect to the point "below" (in the next row)
+            if i < grid_dim - 1:
+                p1 = grid_2d[i, j]
+                p2 = grid_2d[i + 1, j]
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='gray', alpha=0.5)
+            # Connect to the point "to the right" (in the next column)
+            if j < grid_dim - 1:
+                p1 = grid_2d[i, j]
+                p2 = grid_2d[i, j + 1]
+                ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='gray', alpha=0.5)
+
+    ax.set_title(title)
+    ax.set_xlabel('Principal Component 1')
+    ax.set_ylabel('Principal Component 2')
+    print("Displaying fiber grid plot...")
+    plt.show()
+
+def plot_base_grid_3d(base_manifold_matrix, grid_dims, title=""):
+    """
+    Performs PCA on the high-dimensional base manifold vectors and plots the
+    resulting 3D grid structure.
+    """
+    if base_manifold_matrix.shape[0] < 8 or base_manifold_matrix.ndim != 2:
+        print("Not enough points in the base manifold to plot a 3D grid. Skipping.")
+        return
+
+    print("Generating 3D PCA visualization of the base manifold grid...")
+    
+    pca = PCA(n_components=3)
+    points_3d = pca.fit_transform(base_manifold_matrix)
+    
+    # Unpack grid dimensions
+    dim1, dim2, dim3 = grid_dims
+    if dim1 * dim2 * dim3 != points_3d.shape[0]:
+        print(f"Warning: Base manifold size ({points_3d.shape[0]}) does not match grid dimensions {grid_dims}. Skipping grid plot.")
+        return
+
+    # Reshape the points into a 3D grid to easily draw lines between neighbors
+    grid_3d = points_3d.reshape((dim1, dim2, dim3, 3))
+    
+    fig = plt.figure(figsize=(12, 12))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot the grid points
+    ax.scatter(points_3d[:, 0], points_3d[:, 1], points_3d[:, 2], s=50, c='blue', depthshade=True)
+
+    # Plot the grid lines by connecting adjacent points
+    for i in range(dim1):
+        for j in range(dim2):
+            for k in range(dim3):
+                p1 = grid_3d[i, j, k]
+                
+                # Connect to the point along the 1st dimension (e.g., agent noun)
+                if i < dim1 - 1:
+                    p2 = grid_3d[i + 1, j, k]
+                    ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color='gray', alpha=0.3)
+                
+                # Connect to the point along the 2nd dimension (e.g., verb)
+                if j < dim2 - 1:
+                    p2 = grid_3d[i, j + 1, k]
+                    ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color='gray', alpha=0.3)
+
+                # Connect to the point along the 3rd dimension (e.g., patient noun)
+                if k < dim3 - 1:
+                    p2 = grid_3d[i, j, k + 1]
+                    ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], color='gray', alpha=0.3)
+
+    ax.set_title(title)
+    ax.set_xlabel('Principal Component 1')
+    ax.set_ylabel('Principal Component 2')
+    ax.set_zlabel('Principal Component 3')
+    print("Displaying base manifold grid plot...")
+    plt.show()
+
+
 

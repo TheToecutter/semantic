@@ -12,7 +12,7 @@ from language_definition import ToyLanguage
 from space_generator import FillerSpaceGenerator
 from fiber_bundle import FiberBundle
 from dynamics import generate_sentence_trajectory
-from visualizer import plot_combined, plot_filler_space_tsne
+from visualizer import plot_combined, plot_filler_space_tsne, plot_fiber_grid_2d, plot_base_grid_3d
 from tda import plot_gist_persistence, plot_betti_curves, plot_distance_histogram
 import numpy as np
 from sklearn.decomposition import PCA
@@ -100,12 +100,59 @@ def generate_full_total_space_manifold(language: ToyLanguage, bundle: FiberBundl
     print(f"Generated {len(all_sentence_vectors)} unique total space vectors.")
     return np.array(all_sentence_vectors)
 
+def generate_fiber_for_gist(gist: tuple, language: ToyLanguage, bundle: FiberBundle) -> np.ndarray:
+    """
+    Generates all syntactic variations for a single gist. This is the "fiber"
+    of the fiber bundle over a single point in the base space.
+    """
+    agent, action, patient = gist
+    print(f"\n--- Generating Fiber for Gist: ('{agent}', '{action}', '{patient}') ---")
+
+    # Get all valid words from the filler space for each category
+    valid_dets = [w for w in language.terminal_map['Det'] if w in bundle.filler_space]
+    valid_adjs = [w for w in language.terminal_map['Adj'] if w in bundle.filler_space]
+
+    # Check if the specific gist nouns are valid
+    if agent not in bundle.filler_space or action not in bundle.filler_space or patient not in bundle.filler_space:
+        print("Warning: One of the words in the requested gist is not in the filler space. Cannot generate fiber.")
+        return np.array([])
+
+    # 1. Generate all possible Noun Phrases for a FIXED noun
+    def get_nps_for_noun(noun):
+        nps = []
+        # NPs without adjectives ('Det N')
+        for det in valid_dets:
+            nps.append([det, noun])
+        # NPs with adjectives ('Det Adj N')
+        for det, adj in itertools.product(valid_dets, valid_adjs):
+            nps.append([det, adj, noun])
+        return nps
+
+    agent_nps = get_nps_for_noun(agent)
+    patient_nps = get_nps_for_noun(patient)
+    print(f"Generated {len(agent_nps)} NP variations for agent and {len(patient_nps)} for patient.")
+
+    # 2. Generate all sentence vectors for the fixed gist
+    fiber_vectors = []
+    for np1_words, np2_words in itertools.product(agent_nps, patient_nps):
+        sentence_words = np1_words + [action] + np2_words
+        sentence_str = " ".join(sentence_words)
+        try:
+            total_vec = bundle.represent_sentence_in_total_space(sentence_str)
+            fiber_vectors.append(total_vec)
+        except ValueError as e:
+            print(f"Skipping sentence '{sentence_str}': {e}")
+            
+    print(f"Generated {len(fiber_vectors)} unique vectors in the fiber.")
+    return np.array(fiber_vectors)
+
 
 def main():
     # --- Control flags for TDA ---
     RUN_TDA_ON_BASE_SPACE = True
-    RUN_TDA_ON_TOTAL_SPACE = False  # Set to False to skip the long computation
-    
+    RUN_TDA_ON_TOTAL_SPACE = True  # Set to False to skip the long computation
+    RUN_TDA_ON_SINGLE_FIBER = True # Set to False to skip the new experiment
+
     # --- Seed for reproducibility ---
     RANDOM_SEED = 42
     random.seed(RANDOM_SEED)
@@ -190,6 +237,17 @@ def main():
             plot_distance_histogram(full_gist_manifold_matrix,
                                       title=f"Pairwise Distances in Full Gist Manifold (N={full_gist_manifold_matrix.shape[0]})")
 
+        # 5. Visualize the 3D grid structure of the full manifold
+        # We assume 5 nouns, 3 verbs -> 5x3x5 = 75 points
+        # If this assumption is wrong, the plot will be skipped.
+        if full_gist_manifold_matrix.shape[0] == 75:
+            plot_base_grid_3d(full_gist_manifold_matrix, 
+                              grid_dims=(5, 3, 5),
+                              title="PCA Visualization of 5x3x5 Base Manifold Grid")
+        elif full_gist_manifold_matrix.size > 0:
+             print(f"Skipping Base Manifold grid plot: expected 75 points but found {full_gist_manifold_matrix.shape[0]}.")
+
+
     # --- Step 5b: Topological Data Analysis (Total Space) ---
     if RUN_TDA_ON_TOTAL_SPACE:
         print("\n--- Step 5b: Performing Topological Data Analysis (Total Space) ---")
@@ -208,6 +266,42 @@ def main():
 
             plot_distance_histogram(full_total_space_matrix,
                                       title=f"Pairwise Distances in Full Total Space Manifold (N={full_total_space_matrix.shape[0]})")
+            
+            # Visualize the 3D grid structure
+            if full_total_space_matrix.shape[0] == 1875:
+                # We found 5 NPs for 5 nouns = 25 total NPs. 3 verbs.
+                # Grid is (25 NPs) x (3 Verbs) x (25 NPs)
+                plot_base_grid_3d(full_total_space_matrix, 
+                                  grid_dims=(25, 3, 25),
+                                  title="PCA Visualization of 25x3x25 Total Space Manifold Grid")
+            elif full_total_space_matrix.size > 0:
+                 print(f"Skipping Total Space grid plot: expected 1875 points but found {full_total_space_matrix.shape[0]}.")
+
+    
+    # --- Step 5c: TDA on a Single Fiber ---
+    if RUN_TDA_ON_SINGLE_FIBER:
+        print("\n--- Step 5c: Performing TDA on a Single Gist's Fiber ---")
+        HOMOLOGY_MAX_DIM = 2
+        gist_to_analyze = ('cat', 'saw', 'dog')
+        
+        fiber_matrix = generate_fiber_for_gist(gist_to_analyze, language, bundle)
+
+        if fiber_matrix.size > 0:
+            # Plot the 2D visualization of the grid
+            plot_fiber_grid_2d(fiber_matrix, 
+                               title=f"PCA Visualization of Fiber Grid for {gist_to_analyze}")
+
+            # Plot the TDA results
+            plot_gist_persistence(fiber_matrix,
+                                  title=f"Persistence of Fiber for Gist: {gist_to_analyze} (N={fiber_matrix.shape[0]})",
+                                  max_dim=HOMOLOGY_MAX_DIM)
+            
+            plot_betti_curves(fiber_matrix,
+                              title=f"Betti Curves for Fiber for Gist: {gist_to_analyze} (N={fiber_matrix.shape[0]})",
+                              max_dim=HOMOLOGY_MAX_DIM)
+            
+            plot_distance_histogram(fiber_matrix,
+                                      title=f"Pairwise Distances in Fiber for Gist: {gist_to_analyze} (N={fiber_matrix.shape[0]})")
 
 
     # --- Step 6: Visualizing the plots ---
@@ -217,7 +311,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
     
